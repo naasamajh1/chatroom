@@ -47,6 +47,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("disconnect", () => {
+        userCount--;
         delete activeUsers[socket.id];
         io.emit("chat message", `🔴 ${username} has left the chat`);
         io.emit("update users", Object.values(activeUsers));
