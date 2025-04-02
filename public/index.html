@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatroom</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { display: flex; font-family: Arial, sans-serif; }
+        #sidebar { width: 200px; background: #2b2929; padding: 10px; }
+        #chat-container { flex-grow: 1; padding: 10px; text-align: center; }
+        #chat-box, #private-chat-box { border: 1px solid #382727; height: 500px; overflow-y: scroll; padding: 10px; }
+        #message, #private-message { width: 100%; padding: 10px; }
+        #send, #send-private { padding: 6px 10px; }
+        .user { cursor: pointer; padding: 5px; border-bottom: 1px solid #131313; display: flex; align-items: center; }
+        .user:hover { background-color: #000000; }
+        .notification-dot {
+            width: 8px;
+            height: 8px;
+            background: red;
+            border-radius: 50%;
+            margin-left: 8px;
+            display: none;
+        }
+        #private-chat { display: none; }
+        #go-back { display: none; padding: 5px; margin-bottom: 10px; }
+
+        /* Popup Notification */
+        .popup-notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: yellow;
+            padding: 10px;
+            border: 1px solid black;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h3>Active Users</h3>
+        <ul id="users-list"></ul>
+    </div>
+
+    <div id="chat-container">
+        <div id="public-chat">
+            <h1>Chatroom</h1>
+            <div id="chat-box"></div>
+            <input type="text" id="message" placeholder="Type your message...">
+            <button id="send">Send</button>
+        </div>
+
+        <div id="private-chat">
+            <button id="go-back">⬅ Go Back</button>
+            <h2 id="private-chat-header"></h2>
+            <div id="private-chat-box"></div>
+            <input type="text" id="private-message" placeholder="Type a private message...">
+            <button id="send-private">Send</button>
+        </div>
+    </div>
+
+    <div id="slideshow"></div>
+
+    <script>
+    
+    const images = ["dark.png"];
+    slideshow.style.backgroundImage = `url(${images})`;
+
+        const socket = io();
+        const chatBox = document.getElementById("chat-box");
+        const messageInput = document.getElementById("message");
+        const sendButton = document.getElementById("send");
+        const usersList = document.getElementById("users-list");
+        const privateChat = document.getElementById("private-chat");
+        const privateChatBox = document.getElementById("private-chat-box");
+        const privateMessageInput = document.getElementById("private-message");
+        const sendPrivateButton = document.getElementById("send-private");
+        const privateChatHeader = document.getElementById("private-chat-header");
+        const goBackButton = document.getElementById("go-back");
+        const publicChat = document.getElementById("public-chat");
+
+        let username = "";
+        let selectedUser = null;
+
+        socket.on("set username", (assignedUsername) => {
+            username = assignedUsername;
+        });
+
+        function sendMessage() {
+            const msg = messageInput.value.trim();
+            if (msg) {
+                socket.emit("chat message", msg);
+                messageInput.value = "";
+            }
+        }
+
+        sendButton.addEventListener("click", sendMessage);
+        messageInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+
+        socket.on("chat message", (msg) => {
+            const p = document.createElement("p");
+            p.textContent = msg;
+            chatBox.appendChild(p);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        socket.on("update users", (users) => {
+            usersList.innerHTML = "";
+            users.forEach(user => {
+                if (user !== username) {
+                    const li = document.createElement("li");
+                    li.textContent = user;
+                    li.classList.add("user");
+                    li.id = `user-${user.replace(/\s+/g, "-")}`;
+
+                    const notificationDot = document.createElement("span");
+                    notificationDot.classList.add("notification-dot");
+                    li.appendChild(notificationDot);
+
+                    li.addEventListener("click", () => {
+                        openPrivateChat(user);
+                        notificationDot.style.display = "none"; // Hide dot when opening chat
+                    });
+
+                    usersList.appendChild(li);
+                }
+            });
+        });
+
+        function openPrivateChat(user) {
+            selectedUser = user;
+            publicChat.style.display = "none";
+            privateChat.style.display = "block";
+            goBackButton.style.display = "block";
+            privateChatHeader.textContent = `Chat with ${user}`;
+            privateChatBox.innerHTML = "";
+            socket.emit("get private history", { recipient: user });
+        }
+
+        function goBackToPublicChat() {
+            selectedUser = null;
+            publicChat.style.display = "block";
+            privateChat.style.display = "none";
+            goBackButton.style.display = "none";
+        }
+
+        goBackButton.addEventListener("click", goBackToPublicChat);
+
+        function sendPrivateMessage() {
+            const msg = privateMessageInput.value.trim();
+            if (msg && selectedUser) {
+                socket.emit("private message", { recipient: selectedUser, message: msg });
+                privateChatBox.innerHTML += `<p><i>🔒 You -> ${selectedUser}: ${msg}</i></p>`;
+                privateMessageInput.value = "";
+            }
+        }
+
+        sendPrivateButton.addEventListener("click", sendPrivateMessage);
+        privateMessageInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendPrivateMessage();
+            }
+        });
+
+        function showPopupNotification(sender, message) {
+            const popup = document.createElement("div");
+            popup.classList.add("popup-notification");
+            popup.innerHTML = `<strong>${sender}</strong>: ${message}`;
+
+            document.body.appendChild(popup);
+
+            setTimeout(() => {
+                popup.remove();
+            }, 4000);
+        }
+
+        socket.on("private message", ({ sender, message }) => {
+            if (selectedUser === sender) {
+                privateChatBox.innerHTML += `<p><b>🔒 ${sender}:</b> ${message}</p>`;
+            } else {
+                showPopupNotification(sender, message);
+
+                // Show notification dot next to the sender's name
+                const senderElement = document.getElementById(`user-${sender.replace(/\s+/g, "-")}`);
+                if (senderElement) {
+                    senderElement.querySelector(".notification-dot").style.display = "inline-block";
+                }
+            }
+        });
+
+        socket.on("private history", ({ history }) => {
+            privateChatBox.innerHTML = history.map(msg => `<p>${msg}</p>`).join("");
+        });
+    </script>
+</body>
+</html>
